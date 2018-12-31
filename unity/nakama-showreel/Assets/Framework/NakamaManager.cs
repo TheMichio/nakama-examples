@@ -25,19 +25,24 @@ namespace Framework
     public class NakamaManager : Singleton<NakamaManager>
     {
         internal const string HostIp = "127.0.0.1";
-        internal const uint Port = 7350;
+        internal const int Port = 7350;
         internal const bool UseSsl = false;
         internal const string ServerKey = "defaultkey";
-
+        private string deviceId = SystemInfo.deviceUniqueIdentifier;
+        private ISocket _socket;
+        
+        
+        // TODO : remove this? do i need this?
         private const int MaxReconnectAttempts = 5;
 
         private readonly Queue<Action> _dispatchQueue = new Queue<Action>();
-        private readonly INClient _client;
-        private readonly Action<INSession> _sessionHandler;
+        private readonly Client _client;
+        private readonly Action<ISession> _sessionHandler;
 
         public static event EventHandler AfterConnected = (sender, evt) => { };
         public static event EventHandler AfterDisconnected = (sender, evt) => { };
 
+        // TODO : need to rewrite this i guess , there is no INError anymore
         private static readonly Action<INError> ErrorHandler = err =>
         {
             if (err.Code == ErrorCode.GroupNameInuse)
@@ -48,75 +53,78 @@ namespace Framework
             Logger.LogErrorFormat("Error: code '{0}' with '{1}'.", err.Code, err.Message);
         };
 
-        private INAuthenticateMessage _authenticateMessage;
+        // No need for authenticate message anymore i guess
+        //private INAuthenticateMessage _authenticateMessage;
 
         // Flag to tell us whether the socket was closed intentially or not and whether to attempt reconnect.
         private bool _doReconnect = true;
 
         private uint _reconnectCount;
 
-        public INSession Session { get; private set; }
+        public ISession Session { get; private set; }
 
         private NakamaManager()
         {
-            _client = new NClient.Builder(ServerKey).Host(HostIp).Port(Port).SSL(UseSsl).Build();
-            _client.OnTopicMessage = message =>
-            {
-                var chatMessages = StateManager.Instance.ChatMessages;
-                foreach (var topic in chatMessages.Keys)
-                {
-                    if (topic.Id.Equals(message.Topic.Id))
-                    {
-                        chatMessages[topic].Add(message.MessageId, message);
-                    }
-                }
-            };
-
+            _client = new Client(ServerKey , HostIp , Port , UseSsl);                       
             _sessionHandler = session =>
             {
-                Logger.LogFormat("Session: '{0}'.", session.Token);
-                _client.Connect(session, done =>
-                {
-                    Session = session;
-                    _reconnectCount = 0;
-                    // cache session for quick reconnects
-                    _dispatchQueue.Enqueue(() =>
-                    {
-                        PlayerPrefs.SetString("nk.session", session.Token);
-                        AfterConnected(this, EventArgs.Empty);
-                    });
-                });
-            };
-
-            _client.OnDisconnect = evt =>
-            {
-                Logger.Log("Disconnected from server.");
-                if (_doReconnect && _reconnectCount < MaxReconnectAttempts)
-                {
-                    _reconnectCount++;
-                    _dispatchQueue.Enqueue(() => { Reconnect(); });
-                }
-                else
-                {
-                    _dispatchQueue.Clear();
-                    _dispatchQueue.Enqueue(() => { AfterDisconnected(this, EventArgs.Empty); });
-                }
-            };
-            _client.OnError = error => ErrorHandler(error);
+                Logger.LogFormat("Session: '{0}'.", session.AuthToken);
+                _socket = _client.CreateWebSocket();
+                _socket.OnConnect += OnSocketConnected;
+                _socket.OnDisconnect += OnSocketDisconnected;
+                _socket.OnChannelMessage += OnChannelMessage;
+            };                           
+            // TODO : this callback must be implemented for sockets i guess now                           
+            //_client.OnError = error => ErrorHandler(error);
         }
 
-        private IEnumerator Reconnect()
+        public void OnChannelMessage(object sender , IApiChannelMessage message)
         {
-            // if it's the first time disconnected, then attempt to reconnect immediately
-            // every other time, wait 10,20,30,40,50 seconds each time 
-            var reconnectTime = ((_reconnectCount - 1) + 10) * 60;
-            yield return new WaitForSeconds(reconnectTime);
-            _sessionHandler(Session);
+            var chatMessages = StateManager.Instance.ChatMessages;
+            foreach (var topic in chatMessages.Keys)
+            {               
+                if (topic.Equals(message.ChannelId))
+                {
+                    chatMessages[topic].Add(message.MessageId , message);
+                }                
+            }
+        }
+        public void OnSocketConnected(object sender, object evt)
+        {
+            _reconnectCount = 0;
+            // cache session for quick reconnects
+            _dispatchQueue.Enqueue(() =>
+            {
+                PlayerPrefs.SetString("nk.session", Session.AuthToken);
+                AfterConnected(this, EventArgs.Empty);
+            });
         }
 
+        public void OnSocketDisconnected(object sender, object evt)
+        {
+            if (_doReconnect && _reconnectCount < MaxReconnectAttempts)
+            {
+                _reconnectCount++;
+                _dispatchQueue.Enqueue(() =>
+                {
+                    var enumerator = Reconnect();
+                });
+            }
+            else
+            {
+                _dispatchQueue.Clear();
+                _dispatchQueue.Enqueue(() => { AfterDisconnected(this, EventArgs.Empty); });
+            }
+        }
+        
+
+        public async void Authenticate()
+        {
+            Session = await _client.AuthenticateDeviceAsync(deviceId);
+        }
         // Restore serialised session token from PlayerPrefs
         // If the token doesn't exist or is expired `null` is returned.
-        private static INSession RestoreSession()
+        private static ISession RestoreSession()
         {
             var cachedSession = PlayerPrefs.GetString("nk.session");
             if (string.IsNullOrEmpty(cachedSession))
@@ -124,12 +132,39 @@ namespace Framework
                 Logger.Log("No Session in PlayerPrefs.");
                 return null;
             }
-
-            var session = NSession.Restore(cachedSession);
-            if (!session.HasExpired(DateTime.UtcNow)) return session;
+            var session = Nakama.Session.Restore(cachedSession);
+            if (!session.HasExpired(DateTime.UtcNow))
+            {
+                return session;
+            }
             Logger.Log("Session expired.");
             return null;
         }
+        // This method connects the client to the server and
+        // if neccessary authenticates with the server
+        public void Connect()
+        {
+            // Check to see if we have a valid session token we can restore
+            var session = RestoreSession();            
+            if (session != null)
+            {
+                // Session is valid, let's connect.
+                _sessionHandler(session);                
+            }
+            else
+            {
+                // Session is not valid or we dont have any session right now , reauthenticate
+                Authenticate();                
+            }            
+        }
+        private IEnumerator Reconnect()
+        {
+            // if it's the first time disconnected, then attempt to reconnect immediately
+            // every other time, wait 10,20,30,40,50 seconds each time 
+            var reconnectTime = ((_reconnectCount - 1) + 10) * 60;
+            yield return new WaitForSeconds(reconnectTime);
+            _sessionHandler(Session);
+        }        
 
         private void Update()
         {
@@ -161,37 +196,7 @@ namespace Framework
                 Connect(_authenticateMessage);
             }
         }
-
-        // This method connects the client to the server and
-        // if neccessary authenticates with the server
-        public void Connect(INAuthenticateMessage request)
-        {
-            // Check to see if we have a valid session token we can restore
-            var session = RestoreSession();
-            if (session != null)
-            {
-                // Session is valid, let's connect.
-                _sessionHandler(session);
-                return;
-            }
-
-            // Cache message for later use for reconnecting purposes in case the session had expired
-            _authenticateMessage = request;
-
-            // Let's login to authenticate and get a valid token
-            _client.Login(request, _sessionHandler, err =>
-            {
-                if (err.Code == ErrorCode.UserNotFound)
-                {
-                    _client.Register(request, _sessionHandler, ErrorHandler);
-                }
-                else
-                {
-                    ErrorHandler(err);
-                }
-            });
-        }
-
+       
         public void SelfFetch(NSelfFetchMessage message)
         {
             _client.Send(message, self => { StateManager.Instance.SelfInfo = self; }, ErrorHandler);

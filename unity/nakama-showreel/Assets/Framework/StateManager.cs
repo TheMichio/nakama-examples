@@ -21,31 +21,30 @@ namespace Framework
 {
     public class StateManager : Singleton<StateManager>
     {
-        public INSelf SelfInfo { get; internal set; }
-
-        public readonly List<INFriend> Friends = new List<INFriend>();
-        public readonly List<INGroup> SearchedGroups = new List<INGroup>();
-        public readonly List<INGroupSelf> JoinedGroups = new List<INGroupSelf>();
+        public IUserPresence SelfInfo { get; internal set; }
+       
+        public readonly List<IApiFriend> Friends = new List<IApiFriend>();
+        public readonly List<IApiGroup> SearchedGroups = new List<IApiGroup>();
+        //public readonly List<INGroupSelf> JoinedGroups = new List<INGroupSelf>();
 
         // Map of User ID/Room Name to <TopicId, List of messages> for Chat Message
-        public readonly Dictionary<string, INTopicId> Topics = new Dictionary<string, INTopicId>();
+        public readonly Dictionary<string, string> Topics = new Dictionary<string, string>();
 
-        public readonly Dictionary<INTopicId, Dictionary<string, INTopicMessage>> ChatMessages =
-            new Dictionary<INTopicId, Dictionary<string, INTopicMessage>>();
+        public readonly Dictionary<string , Dictionary<string, IApiChannelMessage>> ChatMessages =
+            new Dictionary<string , Dictionary<string, IApiChannelMessage>>();
 
-        public readonly List<INNotification> Notifications = new List<INNotification>();
+        public readonly List<IApiNotification> Notifications = new List<IApiNotification>();
     }
 
-    public class TopicMessageComparer : IComparer<INTopicMessage>
+    public class TopicMessageComparer : IComparer<IApiChannelMessage>
     {
-        public int Compare(INTopicMessage x, INTopicMessage y)
+        public int Compare(IApiChannelMessage x, IApiChannelMessage y)
         {
             if (x == null || y == null)
             {
                 return 0;
             }
-
-            return y.CreatedAt.CompareTo(x.CreatedAt) != 0 ? y.CreatedAt.CompareTo(x.CreatedAt) : 0;
+            return y.CreateTime.CompareTo(x.CreateTime) != 0 ? y.CreateTime.CompareTo(x.CreateTime) : 0;            
         }
     }
 }
