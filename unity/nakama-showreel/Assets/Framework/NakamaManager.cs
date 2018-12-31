@@ -17,6 +17,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices.ComTypes;
 using Nakama;
 using UnityEngine;
 
@@ -43,7 +45,7 @@ namespace Framework
         public static event EventHandler AfterDisconnected = (sender, evt) => { };
 
         // TODO : need to rewrite this i guess , there is no INError anymore
-        private static readonly Action<INError> ErrorHandler = err =>
+        /*private static readonly Action<INError> ErrorHandler = err =>
         {
             if (err.Code == ErrorCode.GroupNameInuse)
             {
@@ -51,7 +53,7 @@ namespace Framework
                 return;
             }
             Logger.LogErrorFormat("Error: code '{0}' with '{1}'.", err.Code, err.Message);
-        };
+        };*/
 
         // No need for authenticate message anymore i guess
         //private INAuthenticateMessage _authenticateMessage;
@@ -146,10 +148,10 @@ namespace Framework
                 {
                     Session = Nakama.Session.Restore(Session.AuthToken);
                     return Session;
-                }
-                Logger.Log("Session expired.");
-                return null;
+                }                
             }
+            Logger.Log("Session expired.");
+            return null;
             
         }
         // This method connects the client to the server and
@@ -206,100 +208,109 @@ namespace Framework
             Connect();
         }
        
-        public void SelfFetch(NSelfFetchMessage message)
+        public async void SelfFetch()
         {
-            _client.Send(message, self => { StateManager.Instance.SelfInfo = self; }, ErrorHandler);
+            var userAccount = await _client.GetAccountAsync(Session);
+
+            StateManager.Instance.SelfInfo = userAccount;
         }
 
-        public void FriendAdd(NFriendAddMessage message, bool refreshList = true)
+        public async void FriendAdd(string[] usernames , string[] ids , bool refreshList)
         {
-            _client.Send(message, done =>
+            await _client.AddFriendsAsync(Session, ids, usernames);
+            if (refreshList)
             {
-                if (refreshList)
-                {
-                    FriendsList(NFriendsListMessage.Default());
-                }
-            }, ErrorHandler);
+                FriendsList();   
+            }            
         }
 
-        public void FriendRemove(NFriendRemoveMessage message)
+        public async void FriendRemove(string[] usernames , string[] ids)
         {
-            _client.Send(message, done => { FriendsList(NFriendsListMessage.Default()); }, ErrorHandler);
+            await _client.DeleteFriendsAsync(Session, ids, usernames);
+            FriendsList();            
+        }
+        /// <summary>
+        /// This Method Will Update FriendList in StateManager 
+        /// </summary>
+        public async void FriendsList()
+        {
+            StateManager.Instance.Friends.Clear();
+            var friendListResult = await _client.ListFriendsAsync(Session);
+            StateManager.Instance.Friends.AddRange(friendListResult.Friends);                     
         }
 
-        public void FriendsList(NFriendsListMessage message)
+        public async void GroupsList(string nameFilter , int limit , bool appendList)
         {
-            _client.Send(message, friends =>
+
+            
+            var groupListResult = await _client.ListGroupsAsync(Session, nameFilter, limit);
+            var groupsList = groupListResult.Groups;            
+            if (!appendList)
             {
-                StateManager.Instance.Friends.Clear();
-                StateManager.Instance.Friends.AddRange(friends.Results);
-            }, ErrorHandler);
-        }
-
-        public void GroupsList(NGroupsListMessage.Builder message, bool appendList = false, uint maxGroups = 100)
-        {
-            _client.Send(message.Build(), groups =>
+                StateManager.Instance.SearchedGroups.Clear();                
+            }            
+            foreach (var group in groupsList)
             {
-                if (!appendList)
-                {
-                    StateManager.Instance.SearchedGroups.Clear();
-                }
-
-                foreach (var group in groups.Results)
-                {
-                    // check to see if SearchedGroups has 'maxGroups' groups.
-                    if (StateManager.Instance.SearchedGroups.Count >= maxGroups)
-                    {
-                        return;
-                    }
-
-                    StateManager.Instance.SearchedGroups.Add(group);
-                }
-
-                // Recursively fetch the next set of groups and append
-                if (groups.Cursor != null && groups.Cursor.Value != "")
-                {
-                    message.Cursor(groups.Cursor);
-                    GroupsList(message, true);
-                }
-            }, ErrorHandler);
+                StateManager.Instance.SearchedGroups.Add(group);   
+            }
+            if (groupListResult.Cursor != null && groupListResult.Cursor.Equals(""))
+            {                
+                GroupsList(nameFilter , limit, true , groupListResult.Cursor);
+            }        
         }
-
-        public void GroupJoin(NGroupJoinMessage message, bool refreshList = true)
+        public async void GroupsList(string nameFilter, int limit, bool appendList, string cursor)
         {
-            _client.Send(message, done =>
+            var groupListResult = await _client.ListGroupsAsync(Session, nameFilter, limit, cursor);
+            var groupList = groupListResult.Groups;
+            if (!appendList)
             {
-                if (refreshList)
-                {
-                    JoinedGroupsList(NGroupsSelfListMessage.Default());
-                }
-            }, ErrorHandler);
-        }
+                StateManager.Instance.SearchedGroups.Clear();
+            }
 
-        public void JoinedGroupsList(NGroupsSelfListMessage message)
-        {
-            _client.Send(message, groups =>
+            foreach (var group in groupList)
             {
-                StateManager.Instance.JoinedGroups.Clear();
-                StateManager.Instance.JoinedGroups.AddRange(groups.Results);
-            }, ErrorHandler);
-        }
-
-        public void GroupCreate(NGroupCreateMessage message)
-        {
-            _client.Send(message, groups => { }, ErrorHandler);
-        }
-
-        public void TopicJoin(string userIdOrRoom, NTopicJoinMessage message)
-        {
-            _client.Send(message, topics =>
+                StateManager.Instance.SearchedGroups.Add(group);
+            }
+            // Recursively fetch the next set of groups and append
+            if (groupListResult.Cursor != null && groupListResult.Cursor.Equals(""))
             {
-                var topic = topics.Results[0];
-                StateManager.Instance.Topics.Add(userIdOrRoom, topic.Topic);
-                StateManager.Instance.ChatMessages.Add(topic.Topic, new Dictionary<string, INTopicMessage>());
-            }, ErrorHandler);
+                GroupsList(nameFilter , limit  , true , groupListResult.Cursor);
+            }
+            
         }
 
+        public async void GroupJoin(string groupId, bool refreshList = true)
+        {
+            await _client.JoinGroupAsync(Session, groupId);
+            if (refreshList)
+            {
+                JoinedGroupsList();
+            }            
+        }
+
+        public async void JoinedGroupsList()
+        {
+            SelfFetch();
+            var userId = StateManager.Instance.SelfInfo.User.Id;
+            StateManager.Instance.JoinedGroups.Clear();
+            var userGroupList = await _client.ListUserGroupsAsync(Session, userId);
+            StateManager.Instance.JoinedGroups.AddRange(userGroupList.UserGroups);            
+        }
+
+        public async void GroupCreate(string groupName , string groupDesc)
+        {
+            var group = await _client.CreateGroupAsync(Session, groupName, groupDesc);
+            Debug.LogFormat($"New Group Created : {group.Id}");
+        }
+
+        public async void TopicJoin(string roomNameOrUserId , ChannelType channelType)
+        {
+            var channel = await _socket.JoinChatAsync(roomNameOrUserId, channelType, true, false);
+            Debug.LogFormat($"You Can now send messages to channel id : {channel.Id}");
+            StateManager.Instance.Topics.Add(roomNameOrUserId , channel.Id);
+            StateManager.Instance.ChatMessages.Add(channel.Id , new Dictionary<string, IApiChannelMessage>());
+        }
+        
         public void TopicMessageList(INTopicId topic, NTopicMessagesListMessage.Builder message,
             bool appendList = false, uint maxMessages = 100)
         {

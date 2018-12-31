@@ -21,11 +21,11 @@ namespace Framework
 {
     public class StateManager : Singleton<StateManager>
     {
-        public IUserPresence SelfInfo { get; internal set; }
+        public IApiAccount SelfInfo { get; internal set; }
        
         public readonly List<IApiFriend> Friends = new List<IApiFriend>();
         public readonly List<IApiGroup> SearchedGroups = new List<IApiGroup>();
-        //public readonly List<INGroupSelf> JoinedGroups = new List<INGroupSelf>();
+        public readonly List<IUserGroupListUserGroup> JoinedGroups = new List<IUserGroupListUserGroup>();
 
         // Map of User ID/Room Name to <TopicId, List of messages> for Chat Message
         public readonly Dictionary<string, string> Topics = new Dictionary<string, string>();
