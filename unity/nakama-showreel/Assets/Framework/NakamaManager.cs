@@ -124,21 +124,33 @@ namespace Framework
         }
         // Restore serialised session token from PlayerPrefs
         // If the token doesn't exist or is expired `null` is returned.
-        private static ISession RestoreSession()
+        private ISession RestoreSession()
         {
-            var cachedSession = PlayerPrefs.GetString("nk.session");
-            if (string.IsNullOrEmpty(cachedSession))
+            if (Session == null)
             {
-                Logger.Log("No Session in PlayerPrefs.");
+                var cachedSession = PlayerPrefs.GetString("nk.session");
+                if (string.IsNullOrEmpty(cachedSession))
+                {
+                    Logger.Log("No Session in PlayerPrefs.");
+                    return null;
+                }
+                Session = Nakama.Session.Restore(cachedSession);
+                if (!Session.HasExpired(DateTime.UtcNow))
+                {
+                    return Session;
+                }                
+            }
+            else
+            {
+                if (Session.HasExpired(DateTime.UtcNow))
+                {
+                    Session = Nakama.Session.Restore(Session.AuthToken);
+                    return Session;
+                }
+                Logger.Log("Session expired.");
                 return null;
             }
-            var session = Nakama.Session.Restore(cachedSession);
-            if (!session.HasExpired(DateTime.UtcNow))
-            {
-                return session;
-            }
-            Logger.Log("Session expired.");
-            return null;
+            
         }
         // This method connects the client to the server and
         // if neccessary authenticates with the server
@@ -174,27 +186,24 @@ namespace Framework
             }
         }
 
-        private void OnApplicationQuit()
+        private async void OnApplicationQuit()
         {
             _doReconnect = false;
-            _client.Disconnect();
+            await _socket.DisconnectAsync();
         }
 
-        private void OnApplicationPause(bool isPaused)
+        private async void OnApplicationPause(bool isPaused)
         {
             if (isPaused)
             {
                 _doReconnect = false;
-                _client.Disconnect();
+                await _socket.DisconnectAsync();
                 return;
             }
 
             // let's re-authenticate (if neccessary) and reconnect to the server.
-            if (_authenticateMessage != null)
-            {
-                _doReconnect = true;
-                Connect(_authenticateMessage);
-            }
+            _doReconnect = true;
+            Connect();
         }
        
         public void SelfFetch(NSelfFetchMessage message)
