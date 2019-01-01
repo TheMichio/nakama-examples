@@ -362,10 +362,10 @@ namespace Framework
             
         }
 
-        public async void TopicSendMessage(string channelId , Dictionary<string , string> messageDictionary)
+        public async void TopicSendMessage(string channelId , string messageJson)
         {
-            var content = messageDictionary.ToJson();
-            IChannelMessageAck messageAck = await _socket.WriteChatMessageAsync(channelId, content);
+            
+            IChannelMessageAck messageAck = await _socket.WriteChatMessageAsync(channelId, messageJson);
             Debug.LogFormat($"message sent to {channelId} , messageAck : {messageAck}");
         }
 
