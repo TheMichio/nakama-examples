@@ -65,45 +65,38 @@ namespace Showreel
                 return;
             }
 
-            var chatMessages = new List<INTopicMessage>();
+            var chatMessages = new List<IApiChannelMessage>();
             chatMessages.AddRange(roomMessages.Values);
             chatMessages.Sort(new TopicMessageComparer());
 
             var allMessages = "";
             foreach (var msg in chatMessages)
             {
-                var chatMessage = JsonUtility.FromJson<ChatMessageContent>(msg.Data);
+                var chatMessage = JsonUtility.FromJson<ChatMessageContent>(msg.Content);
                 allMessages += string.Format(@"
 {0} said: {1}
-				", msg.Handle, chatMessage.Body);
+				", msg.Username, chatMessage.Body);
             }
 
             _chatMessageLabel.text = allMessages;
         }
-
         private void JoinRoomTopic()
-        {
-            var msg = new NTopicJoinMessage.Builder().TopicRoom(RoomName).Build();
-            NakamaManager.Instance.TopicJoin(RoomName, msg);
+        {            
+            NakamaManager.Instance.TopicJoin(RoomName, ChannelType.Room);
             _sendMessageButton.interactable = true;
         }
 
         private void FetchHistoricMessages()
         {
-            var topic = StateManager.Instance.Topics[RoomName];
-            var builder = new NTopicMessagesListMessage.Builder();
-            builder.TopicRoom(RoomName);
-            NakamaManager.Instance.TopicMessageList(topic, builder);
+            var topic = StateManager.Instance.Topics[RoomName];            
+            NakamaManager.Instance.TopicMessageList(topic, 100 , true , true , 500);
         }
 
         public void SendRoomMessage()
         {
             var topic = StateManager.Instance.Topics[RoomName];
-
-            var chatMessage = new ChatMessageContent {Body = _inputField.text};
-
-            var msg = NTopicMessageSendMessage.Default(topic, JsonUtility.ToJson(chatMessage));
-            NakamaManager.Instance.TopicSendMessage(msg);
+            var chatMessage = new ChatMessageContent {Body = _inputField.text};           
+            NakamaManager.Instance.TopicSendMessage(topic , JsonUtility.ToJson(chatMessage));
         }
     }
 }
