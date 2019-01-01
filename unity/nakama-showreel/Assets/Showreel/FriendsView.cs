@@ -34,7 +34,7 @@ namespace Showreel
         // Use this for initialization
         private void Start()
         {
-            NakamaManager.Instance.FriendsList(NFriendsListMessage.Default());
+            NakamaManager.Instance.FriendsList();
 
             _friendInfoLabel = GameObject.Find("FriendInfoLabel").GetComponent<Text>();
             _acceptFriendButton = GameObject.Find("AcceptFriendButton").GetComponent<Button>();
@@ -58,7 +58,7 @@ namespace Showreel
                 List<Dropdown.OptionData> friendList = new List<Dropdown.OptionData>();
                 for (var i = 0; i < StateManager.Instance.Friends.Count; i++)
                 {
-                    friendList.Add(new Dropdown.OptionData(StateManager.Instance.Friends[i].Handle));
+                    friendList.Add(new Dropdown.OptionData(StateManager.Instance.Friends[i].User.Username));
                 }
 
                 _friendSelectorDropdown.interactable = true;
@@ -84,23 +84,23 @@ namespace Showreel
             var friend = StateManager.Instance.Friends[_friendSelectorDropdown.value];
             var state = "";
             switch (friend.State)
-            {
-                case FriendState.Friend:
+            {                
+                case 0:
                     state = "Mutual friends";
                     _acceptFriendButton.interactable = false;
                     _deleteFriendButton.interactable = true;
                     break;
-                case FriendState.Invite:
-                    state = "Received friend invitation";
-                    _acceptFriendButton.interactable = true;
-                    _deleteFriendButton.interactable = true;
-                    break;
-                case FriendState.Invited:
+                case 1:
                     state = "Sent friend invitation";
                     _acceptFriendButton.interactable = false;
                     _deleteFriendButton.interactable = true;
                     break;
-                case FriendState.Blocked:
+                case 2:
+                    state = "Received friend invitation";
+                    _acceptFriendButton.interactable = true;
+                    _deleteFriendButton.interactable = true;
+                    break;                
+                case 3:
                     state = "Blocked user";
                     _acceptFriendButton.interactable = false;
                     _deleteFriendButton.interactable = true;
@@ -109,23 +109,22 @@ namespace Showreel
 
             _friendInfo = string.Format(@"
 Id: {0}
-Handle: {1}
-Fullname: {2}
-Currently Online: {3}
-State: {4}
-			", friend.Id, friend.Handle, friend.Fullname, friend.LastOnlineAt > 0 ? "Yes" : "No", state);
+Display Name: {1}
+Currently Online: {2}
+State: {3}
+			", friend.User.Id, friend.User.DisplayName, friend.User.Online ? "Yes" : "No", state);
         }
 
         public void DeleteFriend()
         {
             var friend = StateManager.Instance.Friends[_friendSelectorDropdown.value];
-            NakamaManager.Instance.FriendRemove(NFriendRemoveMessage.Default(friend.Id));
+            NakamaManager.Instance.FriendRemove(friend.User.Id);
         }
 
         public void AcceptFriend()
         {
             var friend = StateManager.Instance.Friends[_friendSelectorDropdown.value];
-            NakamaManager.Instance.FriendAdd(NFriendAddMessage.ById(friend.Id));
+            NakamaManager.Instance.FriendAdd(friend.User.Id , true);
         }
     }
 }

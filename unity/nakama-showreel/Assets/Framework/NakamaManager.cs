@@ -216,6 +216,16 @@ namespace Framework
             StateManager.Instance.SelfInfo = userAccount;
         }
 
+        public async void FriendAdd(string userId , bool refreshList)
+        {
+            List<string> items;
+            items = new List<string>{userId};
+            await _client.AddFriendsAsync(Session, items);
+            if (refreshList)
+            {
+                FriendsList();
+            }
+        }
         public async void FriendAdd(string[] usernames , string[] ids , bool refreshList)
         {
             await _client.AddFriendsAsync(Session, ids, usernames);
@@ -225,6 +235,14 @@ namespace Framework
             }            
         }
 
+        public async void FriendRemove(string userId)
+        {
+            List<string> items;
+            items = new List<string> {userId};
+            await _client.DeleteFriendsAsync(Session, items);
+            FriendsList();
+            
+        }
         public async void FriendRemove(string[] usernames , string[] ids)
         {
             await _client.DeleteFriendsAsync(Session, ids, usernames);
