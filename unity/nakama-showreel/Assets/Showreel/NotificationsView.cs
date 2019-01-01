@@ -60,9 +60,8 @@ Content: {2}
         }
 
         private void NotificationsList()
-        {
-            var msg = new NNotificationsListMessage.Builder(10);
-            NakamaManager.Instance.NotificationsList(msg);
+        {            
+            NakamaManager.Instance.NotificationsList(10 , true);
         }
     }
 }

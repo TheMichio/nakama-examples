@@ -17,28 +17,37 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices.ComTypes;
 using Nakama;
+using Nakama.TinyJson;
 using UnityEngine;
 
 namespace Framework
 {
     public class NakamaManager : Singleton<NakamaManager>
     {
-        internal const string HostIp = "127.0.0.1";
-        internal const uint Port = 7350;
+        //internal const string HostIp = "10.10.10.112";
+        internal const string HostIp = "165.227.128.175";
+        internal const int Port = 7350;
         internal const bool UseSsl = false;
         internal const string ServerKey = "defaultkey";
-
+        private string deviceId;
+        private ISocket _socket;
+        
+        
+        // TODO : remove this? do i need this?
         private const int MaxReconnectAttempts = 5;
 
         private readonly Queue<Action> _dispatchQueue = new Queue<Action>();
-        private readonly INClient _client;
-        private readonly Action<INSession> _sessionHandler;
+        private readonly Client _client;
+        private readonly Action<ISession> _sessionHandler;
 
         public static event EventHandler AfterConnected = (sender, evt) => { };
         public static event EventHandler AfterDisconnected = (sender, evt) => { };
 
-        private static readonly Action<INError> ErrorHandler = err =>
+        // TODO : need to rewrite this i guess , there is no INError anymore
+        /*private static readonly Action<INError> ErrorHandler = err =>
         {
             if (err.Code == ErrorCode.GroupNameInuse)
             {
@@ -46,65 +55,128 @@ namespace Framework
                 return;
             }
             Logger.LogErrorFormat("Error: code '{0}' with '{1}'.", err.Code, err.Message);
-        };
-
-        private INAuthenticateMessage _authenticateMessage;
+        };*/
 
         // Flag to tell us whether the socket was closed intentially or not and whether to attempt reconnect.
         private bool _doReconnect = true;
 
         private uint _reconnectCount;
 
-        public INSession Session { get; private set; }
+        public ISession Session { get; private set; }
 
-        private NakamaManager()
+        protected override async void Awake()
         {
-            _client = new NClient.Builder(ServerKey).Host(HostIp).Port(Port).SSL(UseSsl).Build();
-            _client.OnTopicMessage = message =>
-            {
-                var chatMessages = StateManager.Instance.ChatMessages;
-                foreach (var topic in chatMessages.Keys)
-                {
-                    if (topic.Id.Equals(message.Topic.Id))
-                    {
-                        chatMessages[topic].Add(message.MessageId, message);
-                    }
-                }
-            };
-
-            _sessionHandler = session =>
-            {
-                Logger.LogFormat("Session: '{0}'.", session.Token);
-                _client.Connect(session, done =>
-                {
-                    Session = session;
-                    _reconnectCount = 0;
-                    // cache session for quick reconnects
-                    _dispatchQueue.Enqueue(() =>
-                    {
-                        PlayerPrefs.SetString("nk.session", session.Token);
-                        AfterConnected(this, EventArgs.Empty);
-                    });
-                });
-            };
-
-            _client.OnDisconnect = evt =>
-            {
-                Logger.Log("Disconnected from server.");
-                if (_doReconnect && _reconnectCount < MaxReconnectAttempts)
-                {
-                    _reconnectCount++;
-                    _dispatchQueue.Enqueue(() => { Reconnect(); });
-                }
-                else
-                {
-                    _dispatchQueue.Clear();
-                    _dispatchQueue.Enqueue(() => { AfterDisconnected(this, EventArgs.Empty); });
-                }
-            };
-            _client.OnError = error => ErrorHandler(error);
+            base.Awake();
+            deviceId = SystemInfo.deviceUniqueIdentifier;                        
         }
 
+        private NakamaManager()
+        {            
+            _client = new Client(ServerKey , HostIp , Port , UseSsl);        
+            _socket = _client.CreateWebSocket();                          
+            _socket.OnConnect += OnSocketConnected;
+            _socket.OnDisconnect += OnSocketDisconnected;
+            _socket.OnChannelMessage += OnChannelMessage;
+            // TODO : this callback must be implemented for sockets i guess now                           
+            //_client.OnError = error => ErrorHandler(error);
+        }
+
+        public void OnChannelMessage(object sender , IApiChannelMessage message)
+        {
+            var chatMessages = StateManager.Instance.ChatMessages;
+            foreach (var topic in chatMessages.Keys)
+            {               
+                if (topic.Equals(message.ChannelId))
+                {
+                    chatMessages[topic].Add(message.MessageId , message);
+                }                
+            }
+        }
+        public void OnSocketConnected(object sender, object evt)
+        {
+            // cache session for quick reconnects
+            Debug.LogFormat($"On Socket Connected");
+            _reconnectCount = 0;            
+            _dispatchQueue.Enqueue(() =>
+            {
+                PlayerPrefs.SetString("nk.session", Session.AuthToken);
+                AfterConnected(this, EventArgs.Empty);
+            });
+        }
+
+        public void OnSocketDisconnected(object sender, object evt)
+        {
+            if (_doReconnect && _reconnectCount < MaxReconnectAttempts)
+            {
+                _reconnectCount++;
+                _dispatchQueue.Enqueue(() =>
+                {
+                    var enumerator = Reconnect();
+                });
+            }
+            else
+            {
+                _dispatchQueue.Clear();
+                _dispatchQueue.Enqueue(() => { AfterDisconnected(this, EventArgs.Empty); });
+            }
+        }
+        
+
+        public async void Authenticate()
+        {
+            Session = await _client.AuthenticateDeviceAsync(deviceId);
+            await _socket.ConnectAsync(Session);
+            Logger.LogFormat("Session: '{0}'.", Session.AuthToken);                                  
+        }
+        // Restore serialised session token from PlayerPrefs
+        // If the token doesn't exist or is expired `null` is returned.
+        private ISession RestoreSession()
+        {
+            if (Session == null)
+            {
+                var cachedSession = PlayerPrefs.GetString("nk.session");
+                if (string.IsNullOrEmpty(cachedSession))
+                {
+                    Logger.Log("No Session in PlayerPrefs.");
+                    return null;
+                }
+                Session = Nakama.Session.Restore(cachedSession);
+                if (!Session.HasExpired(DateTime.UtcNow))
+                {
+                    return Session;
+                }                
+            }
+            else
+            {
+                if (Session.HasExpired(DateTime.UtcNow))
+                {
+                    Session = Nakama.Session.Restore(Session.AuthToken);
+                    return Session;
+                }                
+            }
+            Logger.Log("Session expired.");
+            return null;
+            
+        }
+        // This method connects the client to the server and
+        // if neccessary authenticates with the server
+        public async void Connect()
+        {
+            
+            Authenticate();
+            // Check to see if we have a valid session token we can restore
+            /*var session = RestoreSession();            
+            if (session != null)
+            {
+                // Session is valid, let's connect.
+                _sessionHandler(session);                
+            }
+            else
+            {
+                // Session is not valid or we dont have any session right now , reauthenticate
+                Authenticate();                
+            }*/
+        }
         private IEnumerator Reconnect()
         {
             // if it's the first time disconnected, then attempt to reconnect immediately
@@ -112,24 +184,7 @@ namespace Framework
             var reconnectTime = ((_reconnectCount - 1) + 10) * 60;
             yield return new WaitForSeconds(reconnectTime);
             _sessionHandler(Session);
-        }
-
-        // Restore serialised session token from PlayerPrefs
-        // If the token doesn't exist or is expired `null` is returned.
-        private static INSession RestoreSession()
-        {
-            var cachedSession = PlayerPrefs.GetString("nk.session");
-            if (string.IsNullOrEmpty(cachedSession))
-            {
-                Logger.Log("No Session in PlayerPrefs.");
-                return null;
-            }
-
-            var session = NSession.Restore(cachedSession);
-            if (!session.HasExpired(DateTime.UtcNow)) return session;
-            Logger.Log("Session expired.");
-            return null;
-        }
+        }        
 
         private void Update()
         {
@@ -139,216 +194,239 @@ namespace Framework
             }
         }
 
-        private void OnApplicationQuit()
+        private async void OnApplicationQuit()
         {
             _doReconnect = false;
-            _client.Disconnect();
+            await _socket.DisconnectAsync();
         }
 
-        private void OnApplicationPause(bool isPaused)
+        private async void OnApplicationPause(bool isPaused)
         {
             if (isPaused)
             {
                 _doReconnect = false;
-                _client.Disconnect();
+                await _socket.DisconnectAsync();
                 return;
             }
 
             // let's re-authenticate (if neccessary) and reconnect to the server.
-            if (_authenticateMessage != null)
+            _doReconnect = true;
+            Connect();
+        }
+       
+        public async void SelfFetch()
+        {
+            var userAccount = await _client.GetAccountAsync(Session);
+
+            StateManager.Instance.SelfInfo = userAccount;
+        }
+
+        public async void FriendAdd(string userId , bool refreshList)
+        {
+            List<string> items;
+            items = new List<string>{userId};
+            await _client.AddFriendsAsync(Session, items);
+            if (refreshList)
             {
-                _doReconnect = true;
-                Connect(_authenticateMessage);
+                FriendsList();
+            }
+        }
+        public async void FriendAdd(string[] usernames , string[] ids , bool refreshList)
+        {
+            await _client.AddFriendsAsync(Session, ids, usernames);
+            if (refreshList)
+            {
+                FriendsList();   
+            }            
+        }
+
+        public async void FriendRemove(string userId)
+        {
+            List<string> items;
+            items = new List<string> {userId};
+            await _client.DeleteFriendsAsync(Session, items);
+            FriendsList();
+            
+        }
+        public async void FriendRemove(string[] usernames , string[] ids)
+        {
+            await _client.DeleteFriendsAsync(Session, ids, usernames);
+            FriendsList();            
+        }
+        /// <summary>
+        /// This Method Will Update FriendList in StateManager 
+        /// </summary>
+        public async void FriendsList()
+        {
+            StateManager.Instance.Friends.Clear();
+            var friendListResult = await _client.ListFriendsAsync(Session);
+            StateManager.Instance.Friends.AddRange(friendListResult.Friends);                     
+        }
+
+        public async void GroupsList(string nameFilter , int limit , bool appendList)
+        {
+
+            
+            var groupListResult = await _client.ListGroupsAsync(Session, nameFilter, limit);
+            var groupsList = groupListResult.Groups;            
+            if (!appendList)
+            {
+                StateManager.Instance.SearchedGroups.Clear();                
+            }            
+            foreach (var group in groupsList)
+            {
+                StateManager.Instance.SearchedGroups.Add(group);   
+            }
+            if (groupListResult.Cursor != null && groupListResult.Cursor.Equals(""))
+            {                
+                GroupsList(nameFilter , limit, true , groupListResult.Cursor);
+            }        
+        }
+        public async void GroupsList(string nameFilter, int limit, bool appendList, string cursor)
+        {
+            var groupListResult = await _client.ListGroupsAsync(Session, nameFilter, limit, cursor);
+            var groupList = groupListResult.Groups;
+            if (!appendList)
+            {
+                StateManager.Instance.SearchedGroups.Clear();
+            }
+
+            foreach (var group in groupList)
+            {
+                StateManager.Instance.SearchedGroups.Add(group);
+            }
+            // Recursively fetch the next set of groups and append
+            if (groupListResult.Cursor != null && groupListResult.Cursor.Equals(""))
+            {
+                GroupsList(nameFilter , limit  , true , groupListResult.Cursor);
+            }
+            
+        }
+
+        public async void GroupJoin(string groupId, bool refreshList = true)
+        {
+            await _client.JoinGroupAsync(Session, groupId);
+            if (refreshList)
+            {
+                JoinedGroupsList();
+            }            
+        }
+
+        public async void JoinedGroupsList()
+        {
+            SelfFetch();
+            var userId = StateManager.Instance.SelfInfo.User.Id;
+            StateManager.Instance.JoinedGroups.Clear();
+            var userGroupList = await _client.ListUserGroupsAsync(Session, userId);
+            StateManager.Instance.JoinedGroups.AddRange(userGroupList.UserGroups);            
+        }
+
+        public async void GroupCreate(string groupName , string groupDesc)
+        {
+            var group = await _client.CreateGroupAsync(Session, groupName, groupDesc);
+            Debug.LogFormat($"New Group Created : {group.Id}");
+        }
+
+        public async void TopicJoin(string roomNameOrUserId , ChannelType channelType)
+        {
+            var channel = await _socket.JoinChatAsync(roomNameOrUserId, channelType, true, false);
+            Debug.LogFormat($"You Can now send messages to channel id : {channel.Id}");
+            StateManager.Instance.Topics.Add(roomNameOrUserId , channel.Id);
+            StateManager.Instance.ChatMessages.Add(channel.Id , new Dictionary<string, IApiChannelMessage>());
+        }
+
+        public async void TopicMessageList(string channelId, int messageCount, bool forward , bool appendList , int maxMessages)
+        {
+            var result = await _client.ListChannelMessagesAsync(Session, channelId, messageCount, forward);
+            if (!appendList)
+            {
+                StateManager.Instance.ChatMessages[channelId].Clear();                    
+            }
+
+            foreach (var message in result.Messages)
+            {
+                // check to see if ChatMessages has 'maxMessages' messages.
+                if (StateManager.Instance.ChatMessages[channelId].Count >= maxMessages)
+                {
+                    return;
+                }                                     
+                StateManager.Instance.ChatMessages[channelId].Add(message.MessageId , message);
+            }
+
+            if (!string.IsNullOrEmpty(result.NextCursor))
+            {
+                TopicMessageList(channelId , messageCount , forward , appendList , maxMessages , result.NextCursor);
             }
         }
 
-        // This method connects the client to the server and
-        // if neccessary authenticates with the server
-        public void Connect(INAuthenticateMessage request)
+        public async void TopicMessageList(string channelId, int messageCount, bool forward, bool appendList,
+            int maxMessages, string cursor)
         {
-            // Check to see if we have a valid session token we can restore
-            var session = RestoreSession();
-            if (session != null)
+            var result = await _client.ListChannelMessagesAsync(Session, channelId, messageCount, forward, cursor);
+            if (!appendList)
             {
-                // Session is valid, let's connect.
-                _sessionHandler(session);
-                return;
+                StateManager.Instance.ChatMessages[channelId].Clear();
             }
 
-            // Cache message for later use for reconnecting purposes in case the session had expired
-            _authenticateMessage = request;
-
-            // Let's login to authenticate and get a valid token
-            _client.Login(request, _sessionHandler, err =>
+            foreach (var message in result.Messages)
             {
-                if (err.Code == ErrorCode.UserNotFound)
+                // check to see if ChatMessages has 'maxMessages' messages.
+                if (StateManager.Instance.ChatMessages[channelId].Count >= maxMessages)
                 {
-                    _client.Register(request, _sessionHandler, ErrorHandler);
+                    return;
                 }
-                else
-                {
-                    ErrorHandler(err);
-                }
-            });
-        }
+                StateManager.Instance.ChatMessages[channelId].Add(message.MessageId , message);
+            }
 
-        public void SelfFetch(NSelfFetchMessage message)
-        {
-            _client.Send(message, self => { StateManager.Instance.SelfInfo = self; }, ErrorHandler);
-        }
-
-        public void FriendAdd(NFriendAddMessage message, bool refreshList = true)
-        {
-            _client.Send(message, done =>
+            if (!string.IsNullOrEmpty(result.NextCursor))
             {
-                if (refreshList)
-                {
-                    FriendsList(NFriendsListMessage.Default());
-                }
-            }, ErrorHandler);
+                TopicMessageList(channelId , messageCount , forward , appendList , maxMessages , result.NextCursor);
+            }
+            
         }
 
-        public void FriendRemove(NFriendRemoveMessage message)
+        public async void TopicSendMessage(string channelId , string messageJson)
         {
-            _client.Send(message, done => { FriendsList(NFriendsListMessage.Default()); }, ErrorHandler);
+            
+            IChannelMessageAck messageAck = await _socket.WriteChatMessageAsync(channelId, messageJson);
+            Debug.LogFormat($"message sent to {channelId} , messageAck : {messageAck}");
         }
 
-        public void FriendsList(NFriendsListMessage message)
+        public async void NotificationsList(int notificationCount , bool appendList)
         {
-            _client.Send(message, friends =>
+            
+            var result = await _client.ListNotificationsAsync(Session, notificationCount);
+            if (!appendList)
             {
-                StateManager.Instance.Friends.Clear();
-                StateManager.Instance.Friends.AddRange(friends.Results);
-            }, ErrorHandler);
-        }
-
-        public void GroupsList(NGroupsListMessage.Builder message, bool appendList = false, uint maxGroups = 100)
-        {
-            _client.Send(message.Build(), groups =>
+                StateManager.Instance.Notifications.Clear();
+            }
+            foreach (var notification in result.Notifications)
             {
-                if (!appendList)
-                {
-                    StateManager.Instance.SearchedGroups.Clear();
-                }
+                StateManager.Instance.Notifications.Add(notification);
+            }
 
-                foreach (var group in groups.Results)
-                {
-                    // check to see if SearchedGroups has 'maxGroups' groups.
-                    if (StateManager.Instance.SearchedGroups.Count >= maxGroups)
-                    {
-                        return;
-                    }
-
-                    StateManager.Instance.SearchedGroups.Add(group);
-                }
-
-                // Recursively fetch the next set of groups and append
-                if (groups.Cursor != null && groups.Cursor.Value != "")
-                {
-                    message.Cursor(groups.Cursor);
-                    GroupsList(message, true);
-                }
-            }, ErrorHandler);
-        }
-
-        public void GroupJoin(NGroupJoinMessage message, bool refreshList = true)
-        {
-            _client.Send(message, done =>
+            if (!string.IsNullOrEmpty(result.CacheableCursor))
             {
-                if (refreshList)
-                {
-                    JoinedGroupsList(NGroupsSelfListMessage.Default());
-                }
-            }, ErrorHandler);
+                NotificationsList(notificationCount , appendList , result.CacheableCursor);
+            }
         }
 
-        public void JoinedGroupsList(NGroupsSelfListMessage message)
+        public async void NotificationsList(int notificationCount, bool appendList, string cursor)
         {
-            _client.Send(message, groups =>
+            var result = await _client.ListNotificationsAsync(Session, notificationCount, cursor);
+            if (!appendList)
             {
-                StateManager.Instance.JoinedGroups.Clear();
-                StateManager.Instance.JoinedGroups.AddRange(groups.Results);
-            }, ErrorHandler);
-        }
-
-        public void GroupCreate(NGroupCreateMessage message)
-        {
-            _client.Send(message, groups => { }, ErrorHandler);
-        }
-
-        public void TopicJoin(string userIdOrRoom, NTopicJoinMessage message)
-        {
-            _client.Send(message, topics =>
+                StateManager.Instance.Notifications.Clear();
+            }
+            foreach (var notification in result.Notifications)
             {
-                var topic = topics.Results[0];
-                StateManager.Instance.Topics.Add(userIdOrRoom, topic.Topic);
-                StateManager.Instance.ChatMessages.Add(topic.Topic, new Dictionary<string, INTopicMessage>());
-            }, ErrorHandler);
-        }
+                StateManager.Instance.Notifications.Add(notification);
+            }
 
-        public void TopicMessageList(INTopicId topic, NTopicMessagesListMessage.Builder message,
-            bool appendList = false, uint maxMessages = 100)
-        {
-            _client.Send(message.Build(), messages =>
+            if (!string.IsNullOrEmpty(result.CacheableCursor))
             {
-                if (!appendList)
-                {
-                    StateManager.Instance.ChatMessages[topic].Clear();
-                }
-
-                foreach (var chatMessage in messages.Results)
-                {
-                    // check to see if ChatMessages has 'maxMessages' messages.
-                    if (StateManager.Instance.ChatMessages[topic].Count >= maxMessages)
-                    {
-                        return;
-                    }
-
-                    StateManager.Instance.ChatMessages[topic].Add(chatMessage.MessageId, chatMessage);
-                }
-
-                // Recursively fetch the next set of groups and append
-                if (messages.Cursor != null && messages.Cursor.Value != "")
-                {
-                    message.Cursor(messages.Cursor);
-                    TopicMessageList(topic, message, true);
-                }
-            }, ErrorHandler);
-        }
-
-        public void TopicSendMessage(NTopicMessageSendMessage message)
-        {
-            _client.Send(message, acks => { }, ErrorHandler);
-        }
-
-        public void NotificationsList(NNotificationsListMessage.Builder message,
-            bool appendList = false, uint maxNotifications = 100)
-        {
-            _client.Send(message.Build(), notifications =>
-            {
-                if (!appendList)
-                {
-                    StateManager.Instance.Notifications.Clear();
-                }
-
-                foreach (var notification in notifications.Results)
-                {
-                    // check to see if ChatMessages has 'maxMessages' messages.
-                    if (StateManager.Instance.Notifications.Count >= maxNotifications)
-                    {
-                        return;
-                    }
-
-                    StateManager.Instance.Notifications.Add(notification);
-                }
-
-                // Recursively fetch the next set of groups and append
-                if (notifications.Cursor != null && notifications.Cursor.Value != "")
-                {
-                    message.Cursor(notifications.Cursor.Value);
-                    NotificationsList(message, true);
-                }
-            }, ErrorHandler);
-        }
+                NotificationsList(notificationCount , appendList , result.CacheableCursor);
+            }
+        }              
     }
 }

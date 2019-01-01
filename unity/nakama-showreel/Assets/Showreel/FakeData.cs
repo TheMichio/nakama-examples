@@ -24,7 +24,7 @@ namespace Showreel
     // You can ignore this class entirely.
     public static class FakeData
     {
-        private static bool _initializedFakeData = false;
+        /*private static bool _initializedFakeData = false;
 
         private static readonly Action<INError> ErrorHandler = err =>
         {
@@ -125,6 +125,6 @@ namespace Showreel
         private static INAuthenticateMessage BuildAuthenticationMessage()
         {
             return NAuthenticateMessage.Custom(Guid.NewGuid().ToString());
-        }
+        }*/
     }
 }

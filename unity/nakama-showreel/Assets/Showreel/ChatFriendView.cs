@@ -36,7 +36,7 @@ namespace Showreel
 
         private void Start()
         {
-            NakamaManager.Instance.FriendsList(NFriendsListMessage.Default());
+            NakamaManager.Instance.FriendsList();
 
             _chatMessageLabel = GameObject.Find("ChatMessageLabel").GetComponent<Text>();
             _sendMessageButton = GameObject.Find("SendMessageButton").GetComponent<Button>();
@@ -67,7 +67,7 @@ namespace Showreel
                 List<Dropdown.OptionData> friendList = new List<Dropdown.OptionData>();
                 for (var i = 0; i < StateManager.Instance.Friends.Count; i++)
                 {
-                    friendList.Add(new Dropdown.OptionData(StateManager.Instance.Friends[i].Handle));
+                    friendList.Add(new Dropdown.OptionData(StateManager.Instance.Friends[i].User.Username));
                 }
 
                 _friendSelectorDropdown.interactable = true;
@@ -107,31 +107,28 @@ namespace Showreel
         {
             for (var i = 0; i < StateManager.Instance.Friends.Count; i++)
             {
-                var userId = StateManager.Instance.Friends[i].Id;
+                var userId = StateManager.Instance.Friends[i].User.Id;
 
                 // join a chat topic for users that we haven't seen previously
                 if (!StateManager.Instance.Topics.ContainsKey(userId))
-                {
-                    var msg = new NTopicJoinMessage.Builder().TopicDirectMessage(userId).Build();
-                    NakamaManager.Instance.TopicJoin(userId, msg);
+                {                    
+                    NakamaManager.Instance.TopicJoin(userId, ChannelType.DirectMessage);
                 }
             }
         }
 
-        private void FetchHistoricMessages(INUser user)
+        private void FetchHistoricMessages(IApiFriend user)
         {
-            var topic = StateManager.Instance.Topics[user.Id];
-            var builder = new NTopicMessagesListMessage.Builder();
-            builder.TopicDirectMessage(user.Id);
-            NakamaManager.Instance.TopicMessageList(topic, builder);
+            var topic = StateManager.Instance.Topics[user.User.Id];
+            NakamaManager.Instance.TopicMessageList(topic, 100, true, true, 500);
         }
 
         private void RenderMessages()
         {
             var user = StateManager.Instance.Friends[_friendSelectorDropdown.value];
 
-            INTopicId topic;
-            var topicExists = StateManager.Instance.Topics.TryGetValue(user.Id, out topic);
+            string topic;
+            var topicExists = StateManager.Instance.Topics.TryGetValue(user.User.Id, out topic);
             if (!topicExists)
             {
                 return;
@@ -145,29 +142,26 @@ namespace Showreel
                 return;
             }
 
-            var chatMessages = new List<INTopicMessage>();
+            var chatMessages = new List<IApiChannelMessage>();
             chatMessages.AddRange(friendMessages.Values);
             chatMessages.Sort(new TopicMessageComparer());
 
             _chatMessages = "";
             foreach (var msg in chatMessages)
             {
-                var chatMessage = JsonUtility.FromJson<ChatMessageContent>(msg.Data);
+                var chatMessage = JsonUtility.FromJson<ChatMessageContent>(msg.Content);
                 _chatMessages += string.Format(@"
 {0} said: {1}
-				", msg.Handle, chatMessage.Body);
+				", msg.Username, chatMessage.Body);
             }
         }
 
         public void SendDirectMessage()
         {
             var user = StateManager.Instance.Friends[_friendSelectorDropdown.value];
-            var topic = StateManager.Instance.Topics[user.Id];
-
-            var chatMessage = new ChatMessageContent {Body = _inputField.text};
-
-            var msg = NTopicMessageSendMessage.Default(topic, JsonUtility.ToJson(chatMessage));
-            NakamaManager.Instance.TopicSendMessage(msg);
+            var topic = StateManager.Instance.Topics[user.User.Id];
+            var chatMessage = new ChatMessageContent {Body = _inputField.text};           
+            NakamaManager.Instance.TopicSendMessage(topic , JsonUtility.ToJson(chatMessage));
         }
     }
 }

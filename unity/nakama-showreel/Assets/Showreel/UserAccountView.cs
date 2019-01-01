@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+using System.Linq;
 using Framework;
 using Nakama;
 using UnityEngine;
@@ -29,9 +30,9 @@ namespace Showreel
         {
             _selfInfoText = GameObject.Find("SelfInfoText").GetComponent<Text>();
 
-            NakamaManager.Instance.SelfFetch(NSelfFetchMessage.Default());
+            NakamaManager.Instance.SelfFetch();
         }
-
+        // NOTE : there was a handle property here , but i couldn't find it 
         private void Update()
         {
             var self = StateManager.Instance.SelfInfo;
@@ -39,13 +40,7 @@ namespace Showreel
             {
                 return;
             }
-
-            var selfText = string.Format(@"
-Id: {0}
-Handle: {1}
-Fullname: {2}
-Device ID: {3}
-			", self.Id, self.Handle, self.Fullname, self.DeviceIds[0]);
+            var selfText = $"Id : {self.User.Id} , Display Name : {self.User.DisplayName} , Device ID : {self.Devices.FirstOrDefault()?.Id}";            
             _selfInfoText.text = selfText;
         }
     }

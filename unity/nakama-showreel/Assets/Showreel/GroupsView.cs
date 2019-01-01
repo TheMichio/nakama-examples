@@ -35,7 +35,7 @@ namespace Showreel
         // Use this for initialization
         private void Start()
         {
-            NakamaManager.Instance.JoinedGroupsList(NGroupsSelfListMessage.Default());
+            NakamaManager.Instance.JoinedGroupsList();
 
             _groupInfoLabel = GameObject.Find("GroupInfoLabel").GetComponent<Text>();
             _langField = GameObject.Find("LangField").GetComponent<InputField>();
@@ -62,7 +62,7 @@ namespace Showreel
                 List<Dropdown.OptionData> groupList = new List<Dropdown.OptionData>();
                 for (var i = 0; i < StateManager.Instance.JoinedGroups.Count; i++)
                 {
-                    groupList.Add(new Dropdown.OptionData(StateManager.Instance.JoinedGroups[i].Name));
+                    groupList.Add(new Dropdown.OptionData(StateManager.Instance.JoinedGroups[i].Group.Name));
                 }
 
                 _joinedGroupsSelectorDropdown.interactable = true;
@@ -107,14 +107,17 @@ namespace Showreel
             var state = "";
             switch (group.State)
             {
-                case GroupState.Admin:
+                case 0:
+                    state = "Super Admin";
+                    break;
+                case 1:
                     state = "Admin";
-                    break;
-                case GroupState.Join:
-                    state = "Join request sent";
-                    break;
-                case GroupState.Member:
+                    break;                
+                case 2:
                     state = "Member";
+                    break;
+                case 3:
+                    state = "Join request sent";
                     break;
             }
 
@@ -126,7 +129,7 @@ Language: {3}
 Private Group: {4}
 Member count: {5}
 State: {6}
-			", group.Id, group.Name, group.Description, group.Lang, group.Private ? "Yes" : "No", group.Count, state);
+			", group.Group.Id, group.Group.Name, group.Group.Description, group.Group.LangTag, group.Group.Open ? "Yes" : "No", group.Group.EdgeCount, state);
 
             _joinGroupButton.interactable = false;
         }
@@ -148,14 +151,14 @@ Description: {2}
 Language: {3}
 Private Group: {4}
 Member count: {5}
-			", group.Id, group.Name, group.Description, group.Lang, group.Private ? "Yes" : "No", group.Count);
+			", group.Id, group.Name, group.Description, group.LangTag, group.Open? "Yes" : "No", group.EdgeCount);
 
             // check to see if we've already joined this group, 
             // and if so, disable the join button
             bool alreadyJoinedGroup = false;
             for (var i = 0; i < StateManager.Instance.JoinedGroups.Count; i++)
             {
-                if (StateManager.Instance.JoinedGroups[i].Id.Equals(group.Id))
+                if (StateManager.Instance.JoinedGroups[i].Group.Id.Equals(group.Id))
                 {
                     alreadyJoinedGroup = true;
                     break;
@@ -167,16 +170,14 @@ Member count: {5}
 
         public void SearchGroups()
         {
-            var lang = _langField.text;
-            var msg = new NGroupsListMessage.Builder().FilterByLang(lang);
-            NakamaManager.Instance.GroupsList(msg);
+            var lang = _langField.text;            
+            NakamaManager.Instance.GroupsList(lang , 10 , true);
         }
 
         public void JoinGroup()
         {
-            var group = StateManager.Instance.SearchedGroups[_allGroupsDropdown.value];
-            var msg = NGroupJoinMessage.Default(group.Id);
-            NakamaManager.Instance.GroupJoin(msg);
+            var group = StateManager.Instance.SearchedGroups[_allGroupsDropdown.value];            
+            NakamaManager.Instance.GroupJoin(group.Id);
         }
     }
 }

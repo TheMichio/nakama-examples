@@ -28,7 +28,8 @@ namespace Showreel
         {
             NakamaManager.AfterConnected += (sender, evt) =>
             {
-                FakeData.Init();
+                //FakeData.Init();
+                Debug.LogFormat($"on After Connected Authentication");
                 SceneManager.LoadScene("SelectionMenuScene");
             };
 
@@ -44,21 +45,10 @@ namespace Showreel
 
         // Invoked by the UI 
         public void PlayAsGuest()
-        {
-            INAuthenticateMessage authMessage = BuildDeviceAuthenticateMessage();
-            NakamaManager.Instance.Connect(authMessage);
-        }
+        {            
+            //SceneManager.LoadScene("SelectionMenuScene");
 
-        private static NAuthenticateMessage BuildDeviceAuthenticateMessage()
-        {
-            var id = PlayerPrefs.GetString("nk.deviceid");
-            if (string.IsNullOrEmpty(id))
-            {
-                id = SystemInfo.deviceUniqueIdentifier;
-                PlayerPrefs.SetString("nk.deviceid", id);
-            }
-            Debug.LogFormat("Device Id: '{0}'.", id);
-            return NAuthenticateMessage.Device(id);
-        }
+            NakamaManager.Instance.Connect();
+        }       
     }
 }
