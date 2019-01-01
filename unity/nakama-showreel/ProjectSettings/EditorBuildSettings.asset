@@ -5,28 +5,28 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
-  - enabled: 0
-    path: 
-    guid: 00000000000000000000000000000000
+  - enabled: 1
+    path: Assets/Showreel/AuthenticationScene.unity
+    guid: 132637b83f803468a9f94b10df70e1bb
+  - enabled: 1
+    path: Assets/Showreel/SelectionMenuScene.unity
+    guid: 6d99671c8030044fba326390bbf3149b
+  - enabled: 1
+    path: Assets/Showreel/UserAccountScene.unity
+    guid: 7eddc210a27434faf93d140851531e7e
+  - enabled: 1
+    path: Assets/Showreel/NotificationsScene.unity
+    guid: 3efc454a71ecf4a1d9666fe6e4e5ac35
+  - enabled: 1
+    path: Assets/Showreel/GroupsScene.unity
+    guid: 526bac036ae9b422fb312a9e3a11c1ad
+  - enabled: 1
+    path: Assets/Showreel/FriendsScene.unity
+    guid: 4ed3d6f7ff8094a7781475988e535ae5
+  - enabled: 1
+    path: Assets/Showreel/ChatRoomScene.unity
+    guid: 99465e4ed54774e0c96e595bf3334746
+  - enabled: 1
+    path: Assets/Showreel/ChatFriendScene.unity
+    guid: 11d1552d482304354b6f840374e7393f
   m_configObjects: {}

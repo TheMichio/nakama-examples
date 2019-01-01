@@ -27,7 +27,8 @@ namespace Framework
 {
     public class NakamaManager : Singleton<NakamaManager>
     {
-        internal const string HostIp = "10.10.10.112";
+        //internal const string HostIp = "10.10.10.112";
+        internal const string HostIp = "165.227.128.175";
         internal const int Port = 7350;
         internal const bool UseSsl = false;
         internal const string ServerKey = "defaultkey";
@@ -56,9 +57,6 @@ namespace Framework
             Logger.LogErrorFormat("Error: code '{0}' with '{1}'.", err.Code, err.Message);
         };*/
 
-        // No need for authenticate message anymore i guess
-        //private INAuthenticateMessage _authenticateMessage;
-
         // Flag to tell us whether the socket was closed intentially or not and whether to attempt reconnect.
         private bool _doReconnect = true;
 
@@ -66,23 +64,19 @@ namespace Framework
 
         public ISession Session { get; private set; }
 
-        private void Awake()
+        protected override async void Awake()
         {
-            deviceId = SystemInfo.deviceUniqueIdentifier;
+            base.Awake();
+            deviceId = SystemInfo.deviceUniqueIdentifier;                        
         }
 
         private NakamaManager()
-        {
-            
-            _client = new Client(ServerKey , HostIp , Port , UseSsl);                       
-            _sessionHandler = session =>
-            {
-                Logger.LogFormat("Session: '{0}'.", session.AuthToken);
-                _socket = _client.CreateWebSocket();
-                _socket.OnConnect += OnSocketConnected;
-                _socket.OnDisconnect += OnSocketDisconnected;
-                _socket.OnChannelMessage += OnChannelMessage;
-            };                           
+        {            
+            _client = new Client(ServerKey , HostIp , Port , UseSsl);        
+            _socket = _client.CreateWebSocket();                          
+            _socket.OnConnect += OnSocketConnected;
+            _socket.OnDisconnect += OnSocketDisconnected;
+            _socket.OnChannelMessage += OnChannelMessage;
             // TODO : this callback must be implemented for sockets i guess now                           
             //_client.OnError = error => ErrorHandler(error);
         }
@@ -100,8 +94,9 @@ namespace Framework
         }
         public void OnSocketConnected(object sender, object evt)
         {
-            _reconnectCount = 0;
             // cache session for quick reconnects
+            Debug.LogFormat($"On Socket Connected");
+            _reconnectCount = 0;            
             _dispatchQueue.Enqueue(() =>
             {
                 PlayerPrefs.SetString("nk.session", Session.AuthToken);
@@ -130,6 +125,8 @@ namespace Framework
         public async void Authenticate()
         {
             Session = await _client.AuthenticateDeviceAsync(deviceId);
+            await _socket.ConnectAsync(Session);
+            Logger.LogFormat("Session: '{0}'.", Session.AuthToken);                                  
         }
         // Restore serialised session token from PlayerPrefs
         // If the token doesn't exist or is expired `null` is returned.
@@ -163,10 +160,12 @@ namespace Framework
         }
         // This method connects the client to the server and
         // if neccessary authenticates with the server
-        public void Connect()
+        public async void Connect()
         {
+            
+            Authenticate();
             // Check to see if we have a valid session token we can restore
-            var session = RestoreSession();            
+            /*var session = RestoreSession();            
             if (session != null)
             {
                 // Session is valid, let's connect.
@@ -176,7 +175,7 @@ namespace Framework
             {
                 // Session is not valid or we dont have any session right now , reauthenticate
                 Authenticate();                
-            }            
+            }*/
         }
         private IEnumerator Reconnect()
         {

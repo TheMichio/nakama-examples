@@ -29,6 +29,7 @@ namespace Showreel
             NakamaManager.AfterConnected += (sender, evt) =>
             {
                 //FakeData.Init();
+                Debug.LogFormat($"on After Connected Authentication");
                 SceneManager.LoadScene("SelectionMenuScene");
             };
 
@@ -45,6 +46,8 @@ namespace Showreel
         // Invoked by the UI 
         public void PlayAsGuest()
         {            
+            //SceneManager.LoadScene("SelectionMenuScene");
+
             NakamaManager.Instance.Connect();
         }       
     }
