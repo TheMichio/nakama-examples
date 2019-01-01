@@ -44,21 +44,8 @@ namespace Showreel
 
         // Invoked by the UI 
         public void PlayAsGuest()
-        {
-            INAuthenticateMessage authMessage = BuildDeviceAuthenticateMessage();
-            NakamaManager.Instance.Connect(authMessage);
-        }
-
-        private static NAuthenticateMessage BuildDeviceAuthenticateMessage()
-        {
-            var id = PlayerPrefs.GetString("nk.deviceid");
-            if (string.IsNullOrEmpty(id))
-            {
-                id = SystemInfo.deviceUniqueIdentifier;
-                PlayerPrefs.SetString("nk.deviceid", id);
-            }
-            Debug.LogFormat("Device Id: '{0}'.", id);
-            return NAuthenticateMessage.Device(id);
-        }
+        {            
+            NakamaManager.Instance.Connect();
+        }       
     }
 }

@@ -20,6 +20,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices.ComTypes;
 using Nakama;
+using Nakama.TinyJson;
 using UnityEngine;
 
 namespace Framework
@@ -310,70 +311,99 @@ namespace Framework
             StateManager.Instance.Topics.Add(roomNameOrUserId , channel.Id);
             StateManager.Instance.ChatMessages.Add(channel.Id , new Dictionary<string, IApiChannelMessage>());
         }
-        
-        public void TopicMessageList(INTopicId topic, NTopicMessagesListMessage.Builder message,
-            bool appendList = false, uint maxMessages = 100)
+
+        public async void TopicMessageList(string channelId, int messageCount, bool forward , bool appendList , int maxMessages)
         {
-            _client.Send(message.Build(), messages =>
+            var result = await _client.ListChannelMessagesAsync(Session, channelId, messageCount, forward);
+            if (!appendList)
             {
-                if (!appendList)
-                {
-                    StateManager.Instance.ChatMessages[topic].Clear();
-                }
+                StateManager.Instance.ChatMessages[channelId].Clear();                    
+            }
 
-                foreach (var chatMessage in messages.Results)
-                {
-                    // check to see if ChatMessages has 'maxMessages' messages.
-                    if (StateManager.Instance.ChatMessages[topic].Count >= maxMessages)
-                    {
-                        return;
-                    }
-
-                    StateManager.Instance.ChatMessages[topic].Add(chatMessage.MessageId, chatMessage);
-                }
-
-                // Recursively fetch the next set of groups and append
-                if (messages.Cursor != null && messages.Cursor.Value != "")
-                {
-                    message.Cursor(messages.Cursor);
-                    TopicMessageList(topic, message, true);
-                }
-            }, ErrorHandler);
-        }
-
-        public void TopicSendMessage(NTopicMessageSendMessage message)
-        {
-            _client.Send(message, acks => { }, ErrorHandler);
-        }
-
-        public void NotificationsList(NNotificationsListMessage.Builder message,
-            bool appendList = false, uint maxNotifications = 100)
-        {
-            _client.Send(message.Build(), notifications =>
+            foreach (var message in result.Messages)
             {
-                if (!appendList)
+                // check to see if ChatMessages has 'maxMessages' messages.
+                if (StateManager.Instance.ChatMessages[channelId].Count >= maxMessages)
                 {
-                    StateManager.Instance.Notifications.Clear();
-                }
+                    return;
+                }                                     
+                StateManager.Instance.ChatMessages[channelId].Add(message.MessageId , message);
+            }
 
-                foreach (var notification in notifications.Results)
-                {
-                    // check to see if ChatMessages has 'maxMessages' messages.
-                    if (StateManager.Instance.Notifications.Count >= maxNotifications)
-                    {
-                        return;
-                    }
-
-                    StateManager.Instance.Notifications.Add(notification);
-                }
-
-                // Recursively fetch the next set of groups and append
-                if (notifications.Cursor != null && notifications.Cursor.Value != "")
-                {
-                    message.Cursor(notifications.Cursor.Value);
-                    NotificationsList(message, true);
-                }
-            }, ErrorHandler);
+            if (!string.IsNullOrEmpty(result.NextCursor))
+            {
+                TopicMessageList(channelId , messageCount , forward , appendList , maxMessages , result.NextCursor);
+            }
         }
+
+        public async void TopicMessageList(string channelId, int messageCount, bool forward, bool appendList,
+            int maxMessages, string cursor)
+        {
+            var result = await _client.ListChannelMessagesAsync(Session, channelId, messageCount, forward, cursor);
+            if (!appendList)
+            {
+                StateManager.Instance.ChatMessages[channelId].Clear();
+            }
+
+            foreach (var message in result.Messages)
+            {
+                // check to see if ChatMessages has 'maxMessages' messages.
+                if (StateManager.Instance.ChatMessages[channelId].Count >= maxMessages)
+                {
+                    return;
+                }
+                StateManager.Instance.ChatMessages[channelId].Add(message.MessageId , message);
+            }
+
+            if (!string.IsNullOrEmpty(result.NextCursor))
+            {
+                TopicMessageList(channelId , messageCount , forward , appendList , maxMessages , result.NextCursor);
+            }
+            
+        }
+
+        public async void TopicSendMessage(string channelId , Dictionary<string , string> messageDictionary)
+        {
+            var content = messageDictionary.ToJson();
+            IChannelMessageAck messageAck = await _socket.WriteChatMessageAsync(channelId, content);
+            Debug.LogFormat($"message sent to {channelId} , messageAck : {messageAck}");
+        }
+
+        public async void NotificationsList(int notificationCount , bool appendList)
+        {
+            
+            var result = await _client.ListNotificationsAsync(Session, notificationCount);
+            if (!appendList)
+            {
+                StateManager.Instance.Notifications.Clear();
+            }
+            foreach (var notification in result.Notifications)
+            {
+                StateManager.Instance.Notifications.Add(notification);
+            }
+
+            if (!string.IsNullOrEmpty(result.CacheableCursor))
+            {
+                NotificationsList(notificationCount , appendList , result.CacheableCursor);
+            }
+        }
+
+        public async void NotificationsList(int notificationCount, bool appendList, string cursor)
+        {
+            var result = await _client.ListNotificationsAsync(Session, notificationCount, cursor);
+            if (!appendList)
+            {
+                StateManager.Instance.Notifications.Clear();
+            }
+            foreach (var notification in result.Notifications)
+            {
+                StateManager.Instance.Notifications.Add(notification);
+            }
+
+            if (!string.IsNullOrEmpty(result.CacheableCursor))
+            {
+                NotificationsList(notificationCount , appendList , result.CacheableCursor);
+            }
+        }              
     }
 }

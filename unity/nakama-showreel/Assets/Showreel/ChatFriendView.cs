@@ -36,7 +36,7 @@ namespace Showreel
 
         private void Start()
         {
-            NakamaManager.Instance.FriendsList(NFriendsListMessage.Default());
+            NakamaManager.Instance.FriendsList();
 
             _chatMessageLabel = GameObject.Find("ChatMessageLabel").GetComponent<Text>();
             _sendMessageButton = GameObject.Find("SendMessageButton").GetComponent<Button>();
@@ -107,23 +107,20 @@ namespace Showreel
         {
             for (var i = 0; i < StateManager.Instance.Friends.Count; i++)
             {
-                var userId = StateManager.Instance.Friends[i].Id;
+                var userId = StateManager.Instance.Friends[i].User.Id;
 
                 // join a chat topic for users that we haven't seen previously
                 if (!StateManager.Instance.Topics.ContainsKey(userId))
-                {
-                    var msg = new NTopicJoinMessage.Builder().TopicDirectMessage(userId).Build();
-                    NakamaManager.Instance.TopicJoin(userId, msg);
+                {                    
+                    NakamaManager.Instance.TopicJoin(userId, ChannelType.DirectMessage);
                 }
             }
         }
 
-        private void FetchHistoricMessages(INUser user)
+        private void FetchHistoricMessages(IApiFriend user)
         {
-            var topic = StateManager.Instance.Topics[user.Id];
-            var builder = new NTopicMessagesListMessage.Builder();
-            builder.TopicDirectMessage(user.Id);
-            NakamaManager.Instance.TopicMessageList(topic, builder);
+            var topic = StateManager.Instance.Topics[user.User.Id];
+            NakamaManager.Instance.TopicMessageList(topic, 100, true, true, 500);
         }
 
         private void RenderMessages()
