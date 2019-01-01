@@ -28,7 +28,7 @@ namespace Showreel
         {
             NakamaManager.AfterConnected += (sender, evt) =>
             {
-                FakeData.Init();
+                //FakeData.Init();
                 SceneManager.LoadScene("SelectionMenuScene");
             };
 

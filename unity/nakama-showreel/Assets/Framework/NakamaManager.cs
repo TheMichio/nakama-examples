@@ -27,11 +27,11 @@ namespace Framework
 {
     public class NakamaManager : Singleton<NakamaManager>
     {
-        internal const string HostIp = "127.0.0.1";
+        internal const string HostIp = "10.10.10.112";
         internal const int Port = 7350;
         internal const bool UseSsl = false;
         internal const string ServerKey = "defaultkey";
-        private string deviceId = SystemInfo.deviceUniqueIdentifier;
+        private string deviceId;
         private ISocket _socket;
         
         
@@ -66,8 +66,14 @@ namespace Framework
 
         public ISession Session { get; private set; }
 
+        private void Awake()
+        {
+            deviceId = SystemInfo.deviceUniqueIdentifier;
+        }
+
         private NakamaManager()
         {
+            
             _client = new Client(ServerKey , HostIp , Port , UseSsl);                       
             _sessionHandler = session =>
             {
